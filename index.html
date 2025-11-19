@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pixel Art Video Generator</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+        --bg: #050505;
+        --panel: #0f0f0f;
+        --accent: #f1f5f9;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: radial-gradient(circle at top, #101010, var(--bg));
+        color: #d9e1f2;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 32px;
+      }
+
+      main {
+        width: min(1100px, 100%);
+        display: grid;
+        grid-template-columns: 1fr 320px;
+        gap: 24px;
+      }
+
+      canvas {
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        border-radius: 20px;
+        background: #000;
+        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+      }
+
+      section {
+        background: var(--panel);
+        padding: 24px;
+        border-radius: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        border: 1px solid #1e1e1e;
+      }
+
+      h1 {
+        font-size: 1.4rem;
+        margin: 0;
+      }
+
+      label {
+        font-size: 0.9rem;
+        text-transform: uppercase;
+        color: #8f9bb3;
+        letter-spacing: 0.08em;
+      }
+
+      input[type="range"] {
+        width: 100%;
+      }
+
+      input[type="file"] {
+        display: none;
+      }
+
+      button {
+        appearance: none;
+        border: none;
+        padding: 14px 20px;
+        border-radius: 999px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 160ms ease, opacity 160ms ease;
+      }
+
+      button:active {
+        transform: scale(0.97);
+      }
+
+      .primary {
+        background: #fafafa;
+        color: #090909;
+      }
+
+      .secondary {
+        background: transparent;
+        color: #fefefe;
+        border: 1px solid #2d2d2d;
+      }
+
+      .controls {
+        display: grid;
+        gap: 14px;
+      }
+
+      .buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      .status {
+        font-size: 0.85rem;
+        letter-spacing: 0.05em;
+        color: #aab4d4;
+      }
+
+      @media (max-width: 900px) {
+        main {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <canvas id="pixelCanvas" width="1280" height="720">
+        Il tuo browser non supporta Canvas.
+      </canvas>
+      <section>
+        <h1>Pixel Art Video</h1>
+        <div class="controls">
+          <div>
+            <label for="pixelSize">Dimensione pixel</label>
+            <input id="pixelSize" type="range" min="4" max="40" value="14" />
+          </div>
+          <div>
+            <label for="pulseDepth">Intensità animazione</label>
+            <input id="pulseDepth" type="range" min="0" max="100" value="45" />
+          </div>
+        </div>
+        <div class="buttons">
+          <button class="primary" id="recordBtn">🎥 Registra WebM</button>
+          <label for="fileInput" class="secondary" id="fileLabel"
+            >📁 Carica immagine</label
+          >
+          <input type="file" accept="image/*" id="fileInput" />
+        </div>
+        <div class="status" id="status">Pronto</div>
+      </section>
+    </main>
+
+    <script>
+      const IMAGE_SRC = "./eye.png"; // posiziona qui l'immagine del logo
+      const canvas = document.getElementById("pixelCanvas");
+      const ctx = canvas.getContext("2d");
+      const slider = document.getElementById("pixelSize");
+      const pulseSlider = document.getElementById("pulseDepth");
+      const statusLabel = document.getElementById("status");
+      const fileInput = document.getElementById("fileInput");
+      const recordBtn = document.getElementById("recordBtn");
+
+      const original = new Image();
+      original.crossOrigin = "anonymous";
+      original.src = IMAGE_SRC;
+
+      const hiddenCanvas = document.createElement("canvas");
+      const hiddenCtx = hiddenCanvas.getContext("2d");
+
+      let animationId;
+      let recorder;
+      let recordedChunks = [];
+      let recording = false;
+
+      const resizeHiddenCanvas = () => {
+        hiddenCanvas.width = original.width;
+        hiddenCanvas.height = original.height;
+      };
+
+      const updateStatus = (text) => {
+        statusLabel.textContent = text;
+      };
+
+      const render = (time = 0) => {
+        if (!original.complete || !original.width) {
+          animationId = requestAnimationFrame(render);
+          return;
+        }
+
+        const pixelBase = Number(slider.value);
+        const pulseDepth = Number(pulseSlider.value) / 100;
+        const pulse = 0.65 + Math.sin(time * 0.001) * 0.35 * pulseDepth;
+        const pixelSize = Math.max(2, pixelBase * pulse);
+
+        const columns = Math.ceil(canvas.width / pixelSize);
+        const rows = Math.ceil(canvas.height / pixelSize);
+
+        hiddenCtx.drawImage(
+          original,
+          0,
+          0,
+          hiddenCanvas.width,
+          hiddenCanvas.height
+        );
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.save();
+        ctx.translate(
+          (canvas.width - original.width) / 2,
+          (canvas.height - original.height) / 2
+        );
+
+        for (let y = 0; y < rows; y++) {
+          for (let x = 0; x < columns; x++) {
+            const sampleX = Math.floor(
+              (x * pixelSize * original.width) / canvas.width
+            );
+            const sampleY = Math.floor(
+              (y * pixelSize * original.height) / canvas.height
+            );
+
+            const data = hiddenCtx.getImageData(sampleX, sampleY, 1, 1).data;
+            ctx.fillStyle = `rgba(${data[0]}, ${data[1]}, ${data[2]}, ${
+              data[3] / 255
+            })`;
+            ctx.fillRect(
+              (x * pixelSize * original.width) / canvas.width,
+              (y * pixelSize * original.height) / canvas.height,
+              pixelSize,
+              pixelSize
+            );
+          }
+        }
+
+        ctx.restore();
+        animationId = requestAnimationFrame(render);
+      };
+
+      const startAnimation = () => {
+        cancelAnimationFrame(animationId);
+        animationId = requestAnimationFrame(render);
+      };
+
+      const loadImage = (source) => {
+        updateStatus("Caricamento...");
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
+          original.src = img.src;
+          original.width = img.width;
+          original.height = img.height;
+          resizeHiddenCanvas();
+          updateStatus("Pronto");
+          startAnimation();
+        };
+        img.onerror = () => updateStatus("Errore nel caricamento.");
+        img.src = source;
+      };
+
+      original.onload = () => {
+        resizeHiddenCanvas();
+        startAnimation();
+      };
+
+      slider.addEventListener("input", () =>
+        updateStatus(`Dimensione pixel: ${slider.value}px`)
+      );
+      pulseSlider.addEventListener("input", () =>
+        updateStatus(`Intensità animazione: ${pulseSlider.value}%`)
+      );
+
+      fileInput.addEventListener("change", (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => loadImage(e.target.result);
+        reader.readAsDataURL(file);
+        event.target.value = "";
+      });
+
+      const handleRecording = () => {
+        if (!recording) {
+          recordedChunks = [];
+          const stream = canvas.captureStream(30);
+          recorder = new MediaRecorder(stream, {
+            mimeType: "video/webm; codecs=vp9",
+          });
+          recorder.ondataavailable = (event) => {
+            if (event.data.size > 0) recordedChunks.push(event.data);
+          };
+          recorder.onstop = () => {
+            const blob = new Blob(recordedChunks, { type: "video/webm" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "pixel-art.webm";
+            a.click();
+            URL.revokeObjectURL(url);
+            updateStatus("Registrazione completata");
+            recordBtn.textContent = "🎥 Registra WebM";
+          };
+          recorder.start();
+          recording = true;
+          recordBtn.textContent = "⏹️ Stop";
+          updateStatus("Registrazione in corso...");
+        } else {
+          recorder.stop();
+          recording = false;
+        }
+      };
+
+      recordBtn.addEventListener("click", handleRecording);
+    </script>
+  </body>
+</html>
+
+
